@@ -1,0 +1,6 @@
+jira
+dictlib
+py-dateutil
+openpyxl
+slacker
+rfxcmd

@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+"""
+Jira time reporter
+
+License: GNU Affero
+"""
+
+import os
+import sys
+import re
+import json
+import dictlib
+import sys
+import openpyxl
+import argparse
+import traceback
+import requests
+#from jira.client import JIRA
+#from jira.config import get_jira
+from jira import JIRA
+import datetime
+import dateutil.parser
+import json
+import argparse
+from slacker import Slacker
+
+def warn(msg):
+    print("{} {}".format(datetime.datetime.now(), msg))
+
+################################################################################
+def didLog(workid, seconds):
+    # check a historical db to see if we already logged time for this
+    return False
+
+def logs_for_interval(jira, date_start, date_end, grpfield=None, grpproj=None):
+    if grpfield:
+        # Make a map from field name -> field id
+        fieldMap = dict()
+        for field in jira.fields():
+            if fieldMap.get(field['name']):
+                warn("Collision of key {}: {} and {}".format(field['name'], fieldMap[field['name']], field['id']))
+            else:
+                fieldMap[field['name']] = field['id']
+        if not fieldMap.get(grpfield):
+            print("Available fields:")
+            for field in fieldMap:
+                print("\t" + field)
+            sys.exit("\nABORT: Cannot find grouping field `{}`".format(grpfield))
+    elif not grpproj:
+        sys.exit("ABORT: Neither --groupfield nor --groupproject specified")
+
+    # I would like to use this JQL, but it requires other plugins:
+    #    issueFunction in workLogged("after {} before {}")
+    # so instead we do it the hard way
+    # the hammer approach, gather any changed issue-- easier for more recent, harder for older reports
+    jql = 'updated > "{}"'.format(date_start.strftime("%Y-%m-%d"))
+    if grpproj:
+        grpprojs = re.split(r'\s*,\s*', grpproj)
+        jql = 'project in ("{}") AND {}'.format('","'.join(grpprojs), jql)
+
+    warn("JQL: " + jql)
+
+    results = jira.search_issues(jql, maxResults=65535)
+    worklogs = list()
+    pergrp = dict()
+    issues = dict()
+    for issue in results:
+        if grpfield:
+            groups = ['INTERNAL']
+            try:
+                if issue.fields:
+                    groups_map = getattr(issue.fields, fieldMap[grpfield])
+                    if groups_map:
+                        groups = [grp.value for grp in groups_map]
+            except:
+                pass
+        elif grpproj:
+            groups = grpprojs
+
+        issues[issue.key] = issue
+
+        for wl in jira.worklogs(issue.key):
+            updated = dateutil.parser.parse(wl.started).date()
+
+            if date_start <= updated <= date_end:
+                seconds = int(wl.timeSpentSeconds)
+
+                # did we already log this in the past?
+                if didLog(wl.id, seconds):
+                    continue
+
+                comment = ''
+                try:
+                    comment = wl.comment
+                except:
+                    pass
+
+                log = dictlib.Obj(
+                  groups=groups,
+                  issue=issue.key,
+                  updated=updated,
+                  author=wl.updateAuthor.name,
+                  seconds=seconds,
+                  id=wl.id,
+                  comment=comment
+                  )
+                worklogs.append(log)
+
+                for grp in groups:
+                    if not pergrp.get(grp):
+                        pergrp[grp] = dictlib.Obj(
+                            sum=0,
+                            issues=dict()
+                        )
+                    pc = pergrp[grp]
+
+                    pc.sum = pc.sum + seconds
+                    if not pc.issues.get(issue.key):
+                        pc.issues[issue.key] = dictlib.Obj(sum=0, logs=list(), key=issue.key)
+                    pc.issues[issue.key].logs.append(log)
+                    pc.issues[issue.key].sum = pc.issues[issue.key].sum + seconds
+
+    return (issues, pergrp)
+
+################################################################################
+def inHours(seconds):
+    hours = int(seconds/3600)
+    mins = int((seconds%3600)/60)
+
+    # do another mod by 15-min interval later
+    return "{}.{}".format(hours, mins)
+
+################################################################################
+def main():
+
+    # config via file or stdin
+    config = dict(
+        start='',
+        days='',
+        group_field='Client/s',
+        group_project='',
+        slack_apikey='',
+        slack_channels='',
+        jira_url='',
+        jira_user='',
+        jira_pass='',
+    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config')
+    args = parser.parse_args()
+    if args.config:
+        with open(args.config) as infile:
+            config = dictlib.Obj(dictlib.union(config, json.load(infile)))
+    else:
+        warn("reading config from stdin, end with EOF")
+        config = dictlib.Obj(dictlib.union(config, json.load(sys.stdin)))
+
+    config.days = int(config.days)
+    if config.get('start'):
+        date_start = dateutil.parser.parse(config.start).date()
+    else:
+        today = datetime.datetime.now().date()
+        date_start = today - datetime.timedelta(days=config.days)
+        warn("Defaulting to start {} days ago: {}".format(config.days, date_start))
+
+    date_end = date_start + datetime.timedelta(days=config.days)
+
+    warn("Report for {} to {} ({} days)".format(date_start, date_end, config.days))
+
+    ##############################################################################
+    warn("Connecting to jira (" + config.jira_url + ")...")
+    jira = JIRA(config.jira_url, auth=(config.jira_user, config.jira_pass))
+
+    warn("Collecting data from jira...")
+    issues, data = logs_for_interval(jira, date_start, date_end, grpfield=config.group_field, grpproj=config.group_project)
+
+    ##############################################################################
+    warn("Building Report...")
+    label = 'Group'
+    if config.group_field:
+        label = config.group_field.split("/")[0]
+    elif config.group_project:
+        label = 'Project'
+
+    report_file = "Time Report {}~{}.xlsx".format(date_start, date_end)
+    if os.path.exists(report_file):
+        os.unlink(report_file)
+    warn("output file: " + report_file)
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = 'Summary'
+    def output(row, *dup):
+        sheet.append(row)
+#        if dup:
+#            print("\t".join(row))
+
+    output([])
+    output(["Time Summary from " + str(date_start) + " to " + str(date_end)])
+    output(["Hours", label], True)
+
+    for group in data:
+        output([inHours(data[group].sum), group], True)
+
+#    output(["----"])
+    for group in data:
+        sheet = workbook.create_sheet(group + " Issues")
+        output([])
+        output([group + " Issue Report"], True)
+        output(["Hours", "Issue"])
+        for issue in sorted(data[group].issues.values(), key=lambda e: e.sum, reverse=True):
+            output([inHours(issue.sum), issue.key + " " + issues[issue.key].fields.summary])
+
+#    output(["----"])
+    for group in data:
+        sheet = workbook.create_sheet(group + " Details")
+        output([])
+        output([group + " Detail Report"], True)
+        output(["Hours", "Issue/Log Author", "(hours)"])
+        for issue in sorted(data[group].issues.values(), key=lambda e: e.sum, reverse=True):
+            output([inHours(issue.sum), issue.key + " " + issues[issue.key].fields.summary])
+            worklog = dict()
+            for log in sorted(issue.logs, key=lambda e: e.seconds, reverse=True):
+                key = log.author
+                if log.comment:
+                    key = key + ": " + log.comment
+                if worklog.get(key):
+                    worklog[key] = worklog[key] + float(inHours(log.seconds))
+                else:
+                    worklog[key] = float(inHours(log.seconds))
+            for log in sorted(worklog.keys(), key=lambda e: worklog[e], reverse=True):
+                output(['', log, worklog[log]])
+
+    workbook.save(report_file)
+ 
+    ##############################################################################
+    # and upload to slack
+    if config.slack_apikey and config.slack_channels:
+        slack = Slacker(config.slack_apikey)
+        response = slack.files.upload(report_file, channels=config.slack_channels)
+        warn("Upload to slack {} status={}".format(config.slack_channels, response.successful))
+    else:
+        sys.exit("No slack configuration?  Not uploading results!")
+
+    sys.exit(0)
+
+################################################################################
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+

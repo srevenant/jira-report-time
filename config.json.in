@@ -1,0 +1,10 @@
+{
+  "start": "",
+  "days": "7",
+  "slack_apikey": "%{slack-apikey}",
+  "slack_channels": ["%{slack-channel}"],
+  "group_field": "Client/s",
+  "jira_url": "%{jira-url}",
+  "jira_user": "%{jira-user}",
+  "jira_pass": "%{jira-pass}"
+}
