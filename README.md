@@ -18,11 +18,7 @@ This focuses the UX of the project management tool onto the users, rather than t
 
 # setup
 
-You need docker..
-
-It stores on slack (not great, but it was the best option we could find at the time)
-
-You need to bring in your config somehow.  I use [Reflex](https://reflex.cold.org).  A sample config is available in `[config.json.in](config.json.in)`
+You need to bring in your config somehow.  I use [Reflex](https://reflex.cold.org).  A sample config is available in [`config.json.in`](config.json.in)
 
 Run as:
 
@@ -30,7 +26,7 @@ Run as:
 
 # build & deploy (docker)
 
-Update `[docker-compose.yml](docker-compose.yml)` and `yourimagename` to suite your environment.
+Update [`docker-compose.yml`](docker-compose.yml) and `yourimagename` to suite your environment.
 
     docker-compose build
     docker push `yourimagename`:prd
@@ -52,3 +48,4 @@ In all reality this should be just culling the jira information into a database 
 
 Enjoy!
 
+Fork me, hack me, LMK your mileage!
