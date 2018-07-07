@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""
+Jira time reporter
+
+Run daily, send's a slack message to the team reporting their progress and reminding them to update more.
+
+ONLY sends to people who have logged time!  If you don't log time for a day, it will not slack you.
+
+License: GNU Affero
+"""
+
+import os
+import sys
+import re
+import json
+import dictlib
+import sys
+import openpyxl
+import argparse
+import traceback
+import requests
+#from jira.client import JIRA
+#from jira.config import get_jira
+from jira import JIRA
+import datetime
+import dateutil.parser
+import json
+import argparse
+from slacker import Slacker
+
+from jira_time import warn, debug, didLog, JiraData, inHours
+
+################################################################################
+def main():
+
+    # config via file or stdin
+    config = dict(
+        start='',
+        days='1',
+        group_field='Client/s',
+        group_project='',
+        slack_apikey='',
+        slack_channels='',
+        jira_url='',
+        jira_user='',
+        jira_pass='',
+    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config')
+    args = parser.parse_args()
+    if args.config:
+        with open(args.config) as infile:
+            config = dictlib.Obj(dictlib.union(config, json.load(infile)))
+    else:
+        warn("reading config from stdin, end with EOF")
+        config = dictlib.Obj(dictlib.union(config, json.load(sys.stdin)))
+
+    config.days = 1 # hardwired
+    today = datetime.datetime.now().date()
+    date_start = today - datetime.timedelta(days=1)
+
+    date_end = date_start + datetime.timedelta(days=config.days)
+
+    warn("Report for {} to {} ({} days)".format(date_start, date_end, config.days))
+
+    ##############################################################################
+    warn("Connecting to jira (" + config.jira_url + ")...")
+    jira = JIRA(config.jira_url, auth=(config.jira_user, config.jira_pass))
+
+    warn("Collecting data from jira...")
+    data = JiraData(jira, date_start, date_end, grpfield=config.group_field, grpproj=config.group_project).gather()
+
+    ##############################################################################
+    if not config.slack_apikey:
+        sys.exit("Missing slack apikey?")
+
+    slack = Slacker(config.slack_apikey)
+
+    def error2admins(msg):
+        warn(msg)
+        for admin in config.slack_admins:
+            try:
+                slack.chat.post_message(as_user=True,
+                    text="Error!",
+                    channel=admin,
+                    attachments=[dict(
+                        text=msg
+                    )])
+            except Exception as err:
+                # TODO: config.admin.slackuser notify
+                warn("Also cannot send admin {}: {}".format(admin, err))
+                
+    users = config.users
+    #skip = set(['brandon.gillespie','v.siripurapu','layne.fink','matthew.ewell','noah.goodrich'])
+    for dev in data.perdev:
+    #    if dev in skip:
+    #        continue
+        slackuser = users.get(dev, {}).get('slack', dev)
+        sum = 0
+        attachments = list()
+        msg = dict(
+            as_user=True,
+            channel="@" + slackuser,
+            text="Hello! This is the time you have logged {}. If it isn't accurate, <{}|please update>!".format(config.jira_url, data.date_start),
+            attachments=[]
+        )
+        for issue_ref in sorted(data.perdev[dev].issues.values(), key=lambda e: e.sum, reverse=True):
+            issue = data.issues[issue_ref.key]
+            logs = data.perdev[dev].issues[issue_ref.key].logs
+
+            comments = list()
+            sum = 0
+            for log in sorted(logs, key=lambda e: e.seconds, reverse=True):
+                if log.author.user != dev:
+                    continue
+                if log.comment:
+                    comments.append(log.comment)
+                sum = sum + float(inHours(log.seconds))
+
+            msg['attachments'].append(dict(
+                title="{}h - {} {}".format(sum, issue.key, issue.fields.summary),
+                text="\\n".join(comments)
+            ))
+        debug("Messaging " + dev)
+        try:
+            slack.chat.post_message(**msg)
+        except Exception as err:
+            # TODO: config.admin.slackuser notify
+            error2admins("Could not notify {}: {}".format(slackuser, err))
+
+#        {
+#            "fallback": "Required plain-text summary of the attachment.",
+#            "color": "#2eb886",
+#            "pretext": "Optional text that appears above the attachment block",
+#            "author_name": "Bobby Tables",
+#            "author_link": "http://flickr.com/bobby/",
+#            "author_icon": "http://flickr.com/icons/bobby.jpg",
+#            "title": "Slack API Documentation",
+#            "title_link": "https://api.slack.com/",
+#            "text": "Optional text that appears within the attachment",
+#            "fields": [
+#                {
+#                    "title": "Priority",
+#                    "value": "High",
+#                    "short": false
+#                }
+#            ],
+#            "image_url": "http://my-website.com/path/to/image.jpg",
+#            "thumb_url": "http://example.com/path/to/thumb.png",
+#            "footer": "Slack API",
+#            "footer_icon": "https://platform.slack-edge.com/img/default_application_icon.png",
+#            "ts": 123456789
+#        }
+
+################################################################################
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+
