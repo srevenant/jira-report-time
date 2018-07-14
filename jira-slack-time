@@ -100,9 +100,6 @@ def main():
             warn("Skipping {}: zone {} != {}".format(dev, zone, user.get('zone')))
             continue
 
-# TODO: TAKE OUT OVERRIDE
-        user['slack'] = 'brandon.gillespie'
-
         sum = 0
         attachments = list()
         msg = dict(
