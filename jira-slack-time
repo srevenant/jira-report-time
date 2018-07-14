@@ -105,7 +105,7 @@ def main():
         msg = dict(
             as_user=True,
             channel="@" + user['slack'],
-            text="Hello! This is the time you have logged today. If it isn't accurate, <{}|please update>!".format(config.jira_url),
+            text="Hello! This is the time you have logged in the last day. If it isn't accurate, <{}|please update>!".format(config.jira_url),
             attachments=[]
         )
         for issue_ref in sorted(data.perdev[dev].issues.values(), key=lambda e: e.sum, reverse=True):
