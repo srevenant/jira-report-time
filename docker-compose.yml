@@ -5,5 +5,5 @@ services:
     image: jira-report
     environment:
       - PYTHONUNBUFFERED=true
-      - REFLEX_APIKEY=jira-report.asdfasdf
-      - REFLEX_URL=https://reflex.thesite/api/v1
+      #- REFLEX_APIKEY=jira-report.asdfasdf
+      #- REFLEX_URL=https://reflex.thesite/api/v1
