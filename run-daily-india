@@ -1,0 +1,5 @@
+docker-compose -f jira-report.yml build &&
+    docker-compose -f jira-report.yml run \
+        -e ZONE_LIMIT=India \
+        -e REFLEX_SERVICE=jira-report-daily-p1 \
+      report "$@"

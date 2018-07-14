@@ -158,7 +158,7 @@ class JiraData(object):
         #    issueFunction in workLogged("after {} before {}")
         # so instead we do it the hard way
         # the hammer approach, gather any changed issue-- easier for more recent, harder for older reports
-        jql = 'updated > "{}"'.format(self.date_start.strftime("%Y-%m-%d"))
+        jql = 'updated >= "{}"'.format(self.date_start.strftime("%Y-%m-%d"))
         if self.grpproj:
             grpprojs = re.split(r'\s*,\s*', self.grpproj)
             jql = 'project in ("{}") AND {}'.format('","'.join(grpprojs), jql)
@@ -168,18 +168,22 @@ class JiraData(object):
         # api pagination, pita
         maxResults = 500
         cursor = 0
+        counted = 0
         while True:
             results = self.jira.search_issues(jql, maxResults=maxResults, startAt=cursor)
             debug("total={} maxResults={} startAt={}".format(results.total, results.maxResults, results.startAt))
-            if cursor <= results.total: # == maxResults:
-                cursor = cursor + maxResults
-            else:
-                break
-            x = 1
+            counted = 1
             for issue in results:
-                debug("{} Issue {} {}".format(x, issue.key, issue.fields.summary))
-                self.process_issue(issue, x)
-                x = x + 1
+                debug("{} Issue {} {}".format(counted, issue.key, issue.fields.summary))
+                self.process_issue(issue, counted)
+                counted = counted + 1
+
+            if cursor < results.total: # == maxResults:
+                debug("Incrementing Cursor")
+                cursor = cursor + (counted-1)
+            else:
+                debug("Done cursor={} total={}".format(cursor, results.total))
+                break
 
         return self
 

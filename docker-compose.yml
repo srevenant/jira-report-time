@@ -2,8 +2,8 @@ version: "3.3"
 services:
   report:
     build: .
-    image: jira-time-report
-    deploy:
-      replicas: 0
-      restart_policy:
-        condition: none
+    image: jira-report
+    environment:
+      - PYTHONUNBUFFERED=true
+      - REFLEX_APIKEY=jira-report.asdfasdf
+      - REFLEX_URL=https://reflex.thesite/api/v1

@@ -40,13 +40,14 @@ def main():
         group_field='Client/s',
         group_project='',
         slack_apikey='',
-        slack_channels='',
         jira_url='',
         jira_user='',
         jira_pass='',
     )
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--config')
+    parser.add_argument('--zone')
     args = parser.parse_args()
     if args.config:
         with open(args.config) as infile:
@@ -55,13 +56,17 @@ def main():
         warn("reading config from stdin, end with EOF")
         config = dictlib.Obj(dictlib.union(config, json.load(sys.stdin)))
 
+    if not config.slack_apikey:
+        sys.exit("Missing slack apikey?")
     config.days = 1 # hardwired
     today = datetime.datetime.now().date()
     date_start = today - datetime.timedelta(days=1)
 
     date_end = date_start + datetime.timedelta(days=config.days)
 
-    warn("Report for {} to {} ({} days)".format(date_start, date_end, config.days))
+    zone = os.environ.get('ZONE_LIMIT')
+
+    warn("Report for {} to {} ({} days) in zone={}".format(date_start, date_end, config.days, zone))
 
     ##############################################################################
     warn("Connecting to jira (" + config.jira_url + ")...")
@@ -71,8 +76,6 @@ def main():
     data = JiraData(jira, date_start, date_end, grpfield=config.group_field, grpproj=config.group_project).gather()
 
     ##############################################################################
-    if not config.slack_apikey:
-        sys.exit("Missing slack apikey?")
 
     slack = Slacker(config.slack_apikey)
 
@@ -91,17 +94,21 @@ def main():
                 warn("Also cannot send admin {}: {}".format(admin, err))
                 
     users = config.users
-    #skip = set(['brandon.gillespie','v.siripurapu','layne.fink','matthew.ewell','noah.goodrich'])
     for dev in data.perdev:
-    #    if dev in skip:
-    #        continue
-        slackuser = users.get(dev, {}).get('slack', dev)
+        user = users.get(dev, {'slack': dev})
+        if zone and user.get('zone', 'USA') != zone:
+            warn("Skipping {}: zone {} != {}".format(dev, zone, user.get('zone')))
+            continue
+
+# TODO: TAKE OUT OVERRIDE
+        user['slack'] = 'brandon.gillespie'
+
         sum = 0
         attachments = list()
         msg = dict(
             as_user=True,
-            channel="@" + slackuser,
-            text="Hello! This is the time you have logged {}. If it isn't accurate, <{}|please update>!".format(config.jira_url, data.date_start),
+            channel="@" + user['slack'],
+            text="Hello! This is the time you have logged today. If it isn't accurate, <{}|please update>!".format(config.jira_url),
             attachments=[]
         )
         for issue_ref in sorted(data.perdev[dev].issues.values(), key=lambda e: e.sum, reverse=True):
@@ -121,12 +128,12 @@ def main():
                 title="{}h - {} {}".format(sum, issue.key, issue.fields.summary),
                 text="\\n".join(comments)
             ))
-        debug("Messaging " + dev)
+        debug("Messaging " + dev + " (" + user['slack'] +")")
         try:
             slack.chat.post_message(**msg)
         except Exception as err:
             # TODO: config.admin.slackuser notify
-            error2admins("Could not notify {}: {}".format(slackuser, err))
+            error2admins("Could not notify {}: {}".format(user['slack'], err))
 
 #        {
 #            "fallback": "Required plain-text summary of the attachment.",

@@ -117,7 +117,7 @@ def main():
             output([inHours(issue.sum), issue.key + " " + data.issues[issue.key].fields.summary])
             worklog = dict()
             for log in sorted(issue.logs, key=lambda e: e.seconds, reverse=True):
-                key = log.author
+                key = log.author.name
                 if log.comment:
                     key = key + ": " + log.comment
                 if worklog.get(key):
