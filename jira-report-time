@@ -21,6 +21,7 @@ from jira import JIRA
 import datetime
 import dateutil.parser
 import json
+import pytz
 import argparse
 from slacker import Slacker
 
@@ -51,15 +52,27 @@ def main():
         warn("reading config from stdin, end with EOF")
         config = dictlib.Obj(dictlib.union(config, json.load(sys.stdin)))
 
+    tz = pytz.timezone("UTC")
+    if os.environ.get('TZ'):
+        warn("Using TZ={}".format(os.environ['TZ']))
+        tz = pytz.timezone(os.environ['TZ'])
+    today = datetime.datetime.now()
     config.days = int(config.days)
     if config.get('start'):
         date_start = dateutil.parser.parse(config.start).date()
     else:
         today = datetime.datetime.now().date()
         date_start = today - datetime.timedelta(days=config.days)
+
         warn("Defaulting to start {} days ago: {}".format(config.days, date_start))
 
     date_end = date_start + datetime.timedelta(days=config.days)
+
+    # move into include time - python makes this very painful
+    date_start = datetime.datetime.combine(date_start, datetime.time(0, 0, 0))
+    date_end = datetime.datetime.combine(date_end, datetime.time(0, 0, 0))
+    date_start = tz.localize(date_start)
+    date_end = tz.localize(date_end)
 
     warn("Report for {} to {} ({} days)".format(date_start, date_end, config.days))
 

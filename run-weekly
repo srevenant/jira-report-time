@@ -1,5 +1,12 @@
-docker-compose -f jira-report-daily.yml build &&
-    docker-compose -f jira-report-daily.yml run \
-        -e ZONE_LIMIT=USA \
-        -e REFLEX_SERVICE=jira-report-daily-p1 \
+eval $(reflex setup list 2>&1)
+
+export TZ=US/Mountain
+
+docker-compose build &&
+    docker-compose run \
+        -e ALL_SLACK_TO=brandon.gillespie \
+        -e REFLEX_SERVICE=jira-report-weekly-p1 \
+        -e REFLEX_APIKEY=$REFLEX_APIKEY \
+        -e REFLEX_URL=$REFLEX_URL \
+        -e TZ=$TZ \
       report "$@"

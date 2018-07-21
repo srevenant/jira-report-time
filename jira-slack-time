@@ -25,6 +25,7 @@ from jira import JIRA
 import datetime
 import dateutil.parser
 import json
+import pytz
 import argparse
 from slacker import Slacker
 
@@ -59,7 +60,11 @@ def main():
     if not config.slack_apikey:
         sys.exit("Missing slack apikey?")
     config.days = 1 # hardwired
-    today = datetime.datetime.now().date()
+    tz = pytz.timezone("UTC")
+    if os.environ.get('TZ'):
+        tz = pytz.timezone(os.environ['TZ'])
+    today = datetime.datetime.now(tz=tz)
+
     date_start = today - datetime.timedelta(days=1)
 
     date_end = date_start + datetime.timedelta(days=config.days)
@@ -101,6 +106,10 @@ def main():
             continue
 
         sum = 0
+
+        if os.environ.get('ALL_SLACK_TO'):
+            user['slack'] = os.environ.get('ALL_SLACK_TO')
+
         attachments = list()
         msg = dict(
             as_user=True,
@@ -122,7 +131,7 @@ def main():
                 sum = sum + float(inHours(log.seconds))
 
             msg['attachments'].append(dict(
-                title="{}h - {} {}".format(sum, issue.key, issue.fields.summary),
+                title="{}h - <{}/browse/{}|{}> {}".format(sum, config.jira_url, issue.key, issue.key, issue.fields.summary),
                 text="\\n".join(comments)
             ))
         debug("Messaging " + dev + " (" + user['slack'] +")")

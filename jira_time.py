@@ -93,9 +93,13 @@ class JiraData(object):
             fields=dictlib.Obj(summary=issue.fields.summary))
 
         for wl in self.jira.worklogs(issue.key):
-            updated = dateutil.parser.parse(wl.started).date()
+            updated = dateutil.parser.parse(wl.started) #.date()
 
-            if self.date_start <= updated <= self.date_end:
+            #debug("{} <= {} <= {}".format(
+            #    self.date_start.strftime("%Y-%m-%d %H:%M %z %Z"),
+            #    updated.strftime("%Y-%m-%d %H:%M %z %Z"),
+            #    self.date_end.strftime("%Y-%m-%d %H:%M %z %Z")))
+            if self.date_start <= updated < self.date_end:
                 debug("{} Worklog {} {} {} {}".format(num, issue.key, updated, wl.updateAuthor.name, inHours(wl.timeSpentSeconds)))
                 seconds = int(wl.timeSpentSeconds)
 
@@ -158,7 +162,7 @@ class JiraData(object):
         #    issueFunction in workLogged("after {} before {}")
         # so instead we do it the hard way
         # the hammer approach, gather any changed issue-- easier for more recent, harder for older reports
-        jql = 'updated >= "{}"'.format(self.date_start.strftime("%Y-%m-%d"))
+        jql = 'updated >= "{}"'.format(self.date_start.strftime("%Y-%m-%d %H:%M"))
         if self.grpproj:
             grpprojs = re.split(r'\s*,\s*', self.grpproj)
             jql = 'project in ("{}") AND {}'.format('","'.join(grpprojs), jql)
