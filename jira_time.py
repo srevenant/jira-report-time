@@ -22,7 +22,7 @@ import datetime
 import dateutil.parser
 import json
 import argparse
-from slacker import Slacker
+#from slacker import Slacker
 
 def warn(msg):
     print("{} {}".format(datetime.datetime.now(), msg))
@@ -38,26 +38,92 @@ def didLog(workid, seconds):
     return False
 
 ################################################################################
+class UserMap(object):
+    users = None
+    email2user = None
+    dnameMap = None
+    unameMap = None
+    emailMap = None
+    domain = None
+
+    def __init__(self, slacker=None, domain=None):
+        # what is our email domain (don't lookup users by email username outside our domain)
+        self.domain = domain
+
+        warn("Loading user map from slack...")
+        response = slacker.users.list()
+        if response.body['ok'] != True:
+            sys.exit("\nABORT: Cannot load users?")
+
+        # cross map a few things
+        self.users = dict()
+        self.emailMap = dict()
+        self.unameMap = dict()
+        self.dnameMap = dict()
+
+        # shortcut
+        def setIfExists(dstmap, src, srckey, idnbr):
+            if src.get(srckey):
+                dstmap[src[srckey].lower()] = idnbr
+
+        for user in response.body['members']:
+            if user['deleted']:
+                continue
+            self.users['id'] = user
+            profile = user['profile']
+            setIfExists(self.emailMap, profile, 'email', user['id'])
+            setIfExists(self.dnameMap, profile, 'display_name_normalized', user['id'])
+            setIfExists(self.unameMap, user, 'name', user['id'])
+
+    # try to find the user.  fun nesting using exceptions rather than conditions
+    def lookup(self, user, email):
+        if user[0] == '@':
+            user = user[1:]
+        try:
+            return self.unameMap[user.lower()]
+        except KeyError:
+            try:
+                return self.emailMap[email.lower()]
+            except KeyError:
+                try:
+                    return self.dnameMap[user.lower()]
+                except KeyError:
+                    if email:
+                        emailparts = email.lower().split('@')
+                        if emailparts[1] == self.domain:
+                            try:
+                                return self.unameMap[emailparts[0]]
+                            except KeyError:
+                                try:
+                                    return self.dnameMap[emailparts[0]]
+                                except KeyError:
+                                    pass
+        raise KeyError('Unable to map user to slack ({}, {})'.format(user, email))
+
+################################################################################
 class JiraData(object):
     pergrp = None
     perdev = None
+    dev2email = None
     issues = None
     grpfield = None
     grpproj = None
     fieldMap = None
 
     ############################################################################
-    def __init__(self, jira, date_start, date_end, grpfield=None, grpproj=None):
+    def __init__(self, jira, date_start, date_end, grpfield=None, grpproj=None, grpempty='ALL'):
         self.date_start = date_start
         self.date_end = date_end
         self.jira = jira
         self.pergrp = dict()
+        self.dev2email = dict()
         self.issues = dict()
         self.perdev = dict()
         self.worklogs = list()
         self.fieldMap = fieldMap = dict()
         self.grpfield = grpfield
         self.grpproj = grpproj
+        self.grpempty = grpempty # what label to use if group is an empty list?
         if grpfield:
             # Make a map from field name -> field id
             for field in self.jira.fields():
@@ -76,7 +142,7 @@ class JiraData(object):
     ############################################################################
     def process_issue(self, issue, num):
         if self.grpfield:
-            groups = ['INTERNAL']
+            groups = [self.grpempty or 'ALL'] # an empty group set is implied to be all
             try:
                 if issue.fields:
                     groups_map = getattr(issue.fields, self.fieldMap[self.grpfield])
@@ -115,6 +181,9 @@ class JiraData(object):
 
                 author_name = wl.updateAuthor.displayName
                 author_user = wl.updateAuthor.key.lower()
+                author_email = wl.updateAuthor.emailAddress or ''
+                if author_email and not self.dev2email.get(author_user):
+                    self.dev2email[author_user] = author_email
 
                 # log entry
                 log = dictlib.Obj(

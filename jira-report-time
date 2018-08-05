@@ -81,7 +81,9 @@ def main():
     jira = JIRA(config.jira_url, auth=(config.jira_user, config.jira_pass))
 
     warn("Collecting data from jira...")
-    data = JiraData(jira, date_start, date_end, grpfield=config.group_field, grpproj=config.group_project).gather()
+    grpempty = 'Product' # config eventually...
+    grpAllShow = True # config eventually... Include all when on Detail?
+    data = JiraData(jira, date_start, date_end, grpfield=config.group_field, grpproj=config.group_project, grpempty=grpempty).gather()
 
     ##############################################################################
     warn("Building Report...")
@@ -99,56 +101,94 @@ def main():
     workbook = openpyxl.Workbook()
     sheet = workbook.active
     sheet.title = 'Summary'
-    def output(row, *dup):
+    def addRow(row, *dup):
         sheet.append(row)
 #        if dup:
 #            print("\t".join(row))
 
-    output([])
-    output(["Time Summary from " + str(date_start) + " to " + str(date_end)])
-    output(["Hours", label], True)
+    addRow([])
+    addRow(["Time Summary from " + str(date_start) + " to " + str(date_end)])
+    addRow(["Hours", label], True)
 
+    # report overall summary
     for group in data.pergrp:
-        output([inHours(data.pergrp[group].sum), group], True)
+        addRow([inHours(data.pergrp[group].sum), group], True)
 
-#    output(["----"])
+    # closure functions to reduce duplicted code
+    def addMidRow(issue):
+        addRow([inHours(issue.sum),
+                issue.key + " " + data.issues[issue.key].fields.summary])
+    def addWorkRow(issue):
+        addMidRow(issue)
+        worklog = dict()
+        for log in sorted(issue.logs, key=lambda e: e.seconds, reverse=True):
+            key = log.author.name
+            if log.comment:
+                key = key + ": " + log.comment
+            if worklog.get(key):
+                worklog[key] = worklog[key] + float(inHours(log.seconds))
+            else:
+                worklog[key] = float(inHours(log.seconds))
+        for log in sorted(worklog.keys(), key=lambda e: worklog[e], reverse=True):
+            addRow(['', log, worklog[log]])
+
+    ### report on each individual group as a separate sheet
     for group in data.pergrp:
+        if grpAllShow and group == grpempty: # skip this one, since it is everywhere else
+            continue
         sheet = workbook.create_sheet(("Issues " + group)[:31])
-        output([])
-        output([group + " Issue Report"], True)
-        output(["Hours", "Issue"])
-        for issue in sorted(data.pergrp[group].issues.values(), key=lambda e: e.sum, reverse=True):
-            output([inHours(issue.sum), issue.key + " " + data.issues[issue.key].fields.summary])
+        addRow([])
+        addRow([group + " Issue Report"], True)
+        addRow(["Hours", "Issue"])
 
-#    output(["----"])
+        for issue in sorted(data.pergrp[group].issues.values(),
+                            key=lambda e: e.sum, reverse=True):
+            addMidRow(issue)
+
+        # and add in the common/all issues (but separately)
+        if not grpAllShow:
+            continue
+
+        addRow([])
+        addRow([grpempty + " Issues"])
+        addRow(["Hours", "Issue"])
+        for issue in sorted(data.pergrp[grpempty].issues.values(),
+                            key=lambda e: e.sum, reverse=True):
+            addMidRow(issue)
+
+    # even more detail
     for group in data.pergrp:
-        sheet = workbook.create_sheet(("Detail " + group)[:31])
-        output([])
-        output([group + " Detail Report"], True)
-        output(["Hours", "Issue/Log Author", "(hours)"])
-        for issue in sorted(data.pergrp[group].issues.values(), key=lambda e: e.sum, reverse=True):
-            output([inHours(issue.sum), issue.key + " " + data.issues[issue.key].fields.summary])
-            worklog = dict()
-            for log in sorted(issue.logs, key=lambda e: e.seconds, reverse=True):
-                key = log.author.name
-                if log.comment:
-                    key = key + ": " + log.comment
-                if worklog.get(key):
-                    worklog[key] = worklog[key] + float(inHours(log.seconds))
-                else:
-                    worklog[key] = float(inHours(log.seconds))
-            for log in sorted(worklog.keys(), key=lambda e: worklog[e], reverse=True):
-                output(['', log, worklog[log]])
+        if grpAllShow and group == grpempty: # skip this one, since it is everywhere else
+            continue
 
+        sheet = workbook.create_sheet(("Detail " + group)[:31])
+        addRow([])
+        addRow([group + " Detail Report"], True)
+        addRow(["Hours", "Issue/Log Author", "(hours)"])
+        for issue in sorted(data.pergrp[group].issues.values(),
+                            key=lambda e: e.sum, reverse=True):
+            addWorkRow(issue)
+
+        if not grpAllShow:
+            continue
+
+        addRow([])
+        addRow([grpempty + " Details"], True)
+        addRow(["Hours", "Issue/Log Author", "(hours)"])
+        for issue in sorted(data.pergrp[grpempty].issues.values(),
+                            key=lambda e: e.sum, reverse=True):
+            addWorkRow(issue)
+
+    # and the last sheet is per person
     sheet = workbook.create_sheet("Per Person")
     for dev in data.perdev:
-        output([])
-        output([dev + " Detail Report"], True)
-        output(["Hours", "Issue"])
+        addRow([])
+        addRow([dev + " Detail Report"], True)
+        addRow(["Hours", "Issue"])
         sum = 0
 
         for issue in sorted(data.perdev[dev].issues.values(), key=lambda e: e.sum, reverse=True):
-            output([inHours(issue.sum), issue.key + " " + data.issues[issue.key].fields.summary])
+            addRow([inHours(issue.sum), issue.key + " " + data.issues[issue.key].fields.summary])
             logs = data.perdev[dev].issues[issue.key].logs
             worklog = dict()
             for log in sorted(logs, key=lambda e: e.seconds, reverse=True):
@@ -166,13 +206,14 @@ def main():
                     worklog[key] = float(inHours(log.seconds))
             if len(worklog) > 1:
                 for log in sorted(worklog.keys(), key=lambda e: worklog[e], reverse=True):
-                    output(['', log, worklog[log]])
+                    addRow(['', log, worklog[log]])
 
     workbook.save(report_file)
     warn(report_file)
 
     ##############################################################################
     # and upload to slack
+    sys.exit(0)
     if config.slack_apikey and config.slack_channels:
         slack = Slacker(config.slack_apikey)
         response = slack.files.upload(report_file, channels=config.slack_channels)

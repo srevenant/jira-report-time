@@ -29,7 +29,7 @@ import pytz
 import argparse
 from slacker import Slacker
 
-from jira_time import warn, debug, didLog, JiraData, inHours
+from jira_time import warn, debug, didLog, JiraData, inHours, UserMap
 
 ################################################################################
 def main():
@@ -44,6 +44,7 @@ def main():
         jira_url='',
         jira_user='',
         jira_pass='',
+        my_email_domain='',
     )
 
     parser = argparse.ArgumentParser()
@@ -83,6 +84,7 @@ def main():
     ##############################################################################
 
     slack = Slacker(config.slack_apikey)
+    slackUsers = UserMap(slacker=slack, domain=config.my_email_domain)
 
     def error2admins(msg):
         warn(msg)
@@ -99,16 +101,28 @@ def main():
                 warn("Also cannot send admin {}: {}".format(admin, err))
                 
     users = config.users
+    override_slack_target = None
+    if os.environ.get('ALL_SLACK_TO'):
+        override_slack_target = slackUsers.lookup(os.environ.get('ALL_SLACK_TO'), '')
+        warn("ALL_SLACK_TO={} ({})".format(os.environ.get('ALL_SLACK_TO'), override_slack_target))
+
     for dev in data.perdev:
-        user = users.get(dev, {'slack': dev})
+        user = users.get(dev, {'zone': 'USA'})
+        try:
+            jira_email = data.dev2email.get(dev, '')
+            user['slack'] = slackUsers.lookup(dev, jira_email)
+        except KeyError:
+            error2admins(str(err))
+            continue
+
         if zone and user.get('zone', 'USA') != zone:
             warn("Skipping {}: zone {} != {}".format(dev, zone, user.get('zone')))
             continue
 
         sum = 0
 
-        if os.environ.get('ALL_SLACK_TO'):
-            user['slack'] = os.environ.get('ALL_SLACK_TO')
+        if override_slack_target:
+            user['slack'] = override_slack_target
 
         attachments = list()
         msg = dict(
@@ -140,30 +154,6 @@ def main():
         except Exception as err:
             # TODO: config.admin.slackuser notify
             error2admins("Could not notify {}: {}".format(user['slack'], err))
-
-#        {
-#            "fallback": "Required plain-text summary of the attachment.",
-#            "color": "#2eb886",
-#            "pretext": "Optional text that appears above the attachment block",
-#            "author_name": "Bobby Tables",
-#            "author_link": "http://flickr.com/bobby/",
-#            "author_icon": "http://flickr.com/icons/bobby.jpg",
-#            "title": "Slack API Documentation",
-#            "title_link": "https://api.slack.com/",
-#            "text": "Optional text that appears within the attachment",
-#            "fields": [
-#                {
-#                    "title": "Priority",
-#                    "value": "High",
-#                    "short": false
-#                }
-#            ],
-#            "image_url": "http://my-website.com/path/to/image.jpg",
-#            "thumb_url": "http://example.com/path/to/thumb.png",
-#            "footer": "Slack API",
-#            "footer_icon": "https://platform.slack-edge.com/img/default_application_icon.png",
-#            "ts": 123456789
-#        }
 
 ################################################################################
 if __name__ == "__main__":

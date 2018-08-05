@@ -1,3 +1,6 @@
 config.json
 *.swp
 python3
+.DS_Store
+__pycache__
+macpy3
