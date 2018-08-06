@@ -213,7 +213,6 @@ def main():
 
     ##############################################################################
     # and upload to slack
-    sys.exit(0)
     if config.slack_apikey and config.slack_channels:
         slack = Slacker(config.slack_apikey)
         response = slack.files.upload(report_file, channels=config.slack_channels)
