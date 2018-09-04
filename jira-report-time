@@ -43,7 +43,7 @@ def main():
         jira_pass='',
     )
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config')
+    parser.add_argument('--config', '-c')
     args = parser.parse_args()
     if args.config:
         with open(args.config) as infile:
@@ -56,17 +56,27 @@ def main():
     if os.environ.get('TZ'):
         warn("Using TZ={}".format(os.environ['TZ']))
         tz = pytz.timezone(os.environ['TZ'])
+
     today = datetime.datetime.now()
+
     config.days = int(config.days)
+    if os.environ.get('REPORT_START'):
+        config.start = os.environ.get('REPORT_START')
+    if os.environ.get('REPORT_END'):
+        config.end = os.environ.get('REPORT_END')
+
     if config.get('start'):
         date_start = dateutil.parser.parse(config.start).date()
     else:
         today = datetime.datetime.now().date()
         date_start = today - datetime.timedelta(days=config.days)
-
         warn("Defaulting to start {} days ago: {}".format(config.days, date_start))
 
-    date_end = date_start + datetime.timedelta(days=config.days)
+    if config.get('end'):
+        date_end = dateutil.parser.parse(config.end).date()
+        config.days = (date_end - date_start).days
+    else:
+        date_end = date_start + datetime.timedelta(days=config.days)
 
     # move into include time - python makes this very painful
     date_start = datetime.datetime.combine(date_start, datetime.time(0, 0, 0))
