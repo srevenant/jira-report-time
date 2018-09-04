@@ -61,8 +61,10 @@ def main():
 
     config.days = int(config.days)
     if os.environ.get('REPORT_START'):
+        print("Using environ (start)")
         config.start = os.environ.get('REPORT_START')
     if os.environ.get('REPORT_END'):
+        print("Using environ (end)")
         config.end = os.environ.get('REPORT_END')
 
     if config.get('start'):
@@ -77,6 +79,9 @@ def main():
         config.days = (date_end - date_start).days
     else:
         date_end = date_start + datetime.timedelta(days=config.days)
+
+    print(date_start)
+    print(date_end)
 
     # move into include time - python makes this very painful
     date_start = datetime.datetime.combine(date_start, datetime.time(0, 0, 0))
