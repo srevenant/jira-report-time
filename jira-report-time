@@ -61,10 +61,8 @@ def main():
 
     config.days = int(config.days)
     if os.environ.get('REPORT_START'):
-        print("Using environ (start)")
         config.start = os.environ.get('REPORT_START')
     if os.environ.get('REPORT_END'):
-        print("Using environ (end)")
         config.end = os.environ.get('REPORT_END')
 
     if config.get('start'):
@@ -80,18 +78,13 @@ def main():
     else:
         date_end = date_start + datetime.timedelta(days=config.days)
 
-    print(date_start)
-    print(date_end)
-
     # move into include time - python makes this very painful
     date_start = datetime.datetime.combine(date_start, datetime.time(0, 0, 0))
     date_end = datetime.datetime.combine(date_end, datetime.time(23, 59, 59))
     date_start = tz.localize(date_start)
     date_end = tz.localize(date_end)
 
-    print(os.environ.get('REPORT_START'))
     warn("Report for {} to {} ({} days)".format(date_start, date_end, config.days))
-    sys.exit(0)
 
     ##############################################################################
     warn("Connecting to jira (" + config.jira_url + ")...")
