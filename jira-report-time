@@ -84,7 +84,9 @@ def main():
     date_start = tz.localize(date_start)
     date_end = tz.localize(date_end)
 
+    print(os.environ.get('REPORT_START'))
     warn("Report for {} to {} ({} days)".format(date_start, date_end, config.days))
+    sys.exit(0)
 
     ##############################################################################
     warn("Connecting to jira (" + config.jira_url + ")...")
