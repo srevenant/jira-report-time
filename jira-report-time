@@ -80,7 +80,7 @@ def main():
 
     # move into include time - python makes this very painful
     date_start = datetime.datetime.combine(date_start, datetime.time(0, 0, 0))
-    date_end = datetime.datetime.combine(date_end, datetime.time(0, 0, 0))
+    date_end = datetime.datetime.combine(date_end, datetime.time(23, 59, 59))
     date_start = tz.localize(date_start)
     date_end = tz.localize(date_end)
 

@@ -165,7 +165,7 @@ class JiraData(object):
             #    self.date_start.strftime("%Y-%m-%d %H:%M %z %Z"),
             #    updated.strftime("%Y-%m-%d %H:%M %z %Z"),
             #    self.date_end.strftime("%Y-%m-%d %H:%M %z %Z")))
-            if self.date_start <= updated < self.date_end:
+            if self.date_start <= updated <= self.date_end:
                 debug("{} Worklog {} {} {} {}".format(num, issue.key, updated, wl.updateAuthor.name, inHours(wl.timeSpentSeconds)))
                 seconds = int(wl.timeSpentSeconds)
 
